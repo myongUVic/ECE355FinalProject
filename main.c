@@ -46,6 +46,10 @@
 void myGPIOA_Init(void);
 void myTIM2_Init(void);
 void myEXTI_Init(void);
+void myADC1_Init(void);
+void myDAC1_Init(void);
+void mySPI1_Init(void);
+
 
 // Your global variables...
 
@@ -59,6 +63,10 @@ main(int argc, char* argv[])
 	myGPIOA_Init();		/* Initialize I/O port PA */
 	myTIM2_Init();		/* Initialize timer TIM2 */
 	myEXTI_Init();		/* Initialize EXTI */
+	myADC1_Init();
+	myDAC1_Init();
+	mySPI1_Init();
+
 
 	while (1)
 	{
@@ -70,6 +78,18 @@ main(int argc, char* argv[])
 }
 
 
+}
+void myADC1_Init(){
+
+	RCC->APB2ENR |= RCC_APB2ENR_ADCEN; /*Enable ADC clock*/
+	//calibrate ADC
+
+
+
+	ADC1->CR |= ADC_CR_ADEN; // Enable ADC
+
+}
+
 void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral */
@@ -80,10 +100,17 @@ void myGPIOA_Init()
 	// Relevant register: GPIOA->MODER
 
 	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
-
 	/* Ensure no pull-up/pull-down for PA1 */
 	// Relevant register: GPIOA->PUPDR
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
+
+	// Configure PA0 as analog input for pot
+	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
+	/* Ensure no pull-up/pull-down for PA0 */
+	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR0);
+
+
+
 }
 
 
