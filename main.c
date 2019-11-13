@@ -50,11 +50,11 @@ void myADC1_Init(void);
 void myDAC1_Init(void);
 void mySPI1_Init(void);
 
-
 // Your global variables...
 
 
 main(int argc, char* argv[])
+
 {
 
 	trace_printf("This is Part 2 of Introductory Lab...\n");
@@ -67,7 +67,6 @@ main(int argc, char* argv[])
 	myDAC1_Init();
 	mySPI1_Init();
 
-
 	while (1)
 	{
 		// Nothing is going on here...
@@ -76,32 +75,37 @@ main(int argc, char* argv[])
 	return 0;
 
 }
-
-
-}
 void myADC1_Init(){
 
 	RCC->APB2ENR |= RCC_APB2ENR_ADCEN; /*Enable ADC clock*/
 	//calibrate ADC
+	ADC1->CR = ADC_CR_ADCAL;
+	while(ADC1->CR = ADC_CR_ADCAL){}
+	trace_printf("Calibration Complete");
+	//enable ADC, check for flag before using
 
 
 
-	ADC1->CR |= ADC_CR_ADEN; // Enable ADC
+
+
+
+
+
+
+
+
+	|= ADC_CR_ADEN; // Enable ADC
 
 }
 
 void myGPIOA_Init()
 {
-	/* Enable clock for GPIOA peripheral */
-	// Relevant register: RCC->AHBENR
+	/* Enable clock for GPIOA peripheral (Relevant register: RCC->AHBENR) */
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
-	/* Configure PA1 as input */
-	// Relevant register: GPIOA->MODER
-
+	/* Configure PA1 as input (Relevant register: GPIOA->MODER)*/
 	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
-	/* Ensure no pull-up/pull-down for PA1 */
-	// Relevant register: GPIOA->PUPDR
+	/* Ensure no pull-up/pull-down for PA1 (Relevant register: GPIOA->PUPDR) */
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
 
 	// Configure PA0 as analog input for pot
@@ -109,8 +113,10 @@ void myGPIOA_Init()
 	/* Ensure no pull-up/pull-down for PA0 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR0);
 
-
-
+	// Configure PA4 as analog output for DAC
+	GPIOA->MODER &= ~(GPIO_MODER_MODER4);
+	/* Ensure no pull-up/pull-down for PA4 */
+	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR4);
 }
 
 
@@ -118,7 +124,6 @@ void myTIM2_Init()
 {
 	/* Enable clock for TIM2 peripheral */
 	// Relevant register: RCC->APB1ENR
-
 	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
 
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
@@ -126,7 +131,7 @@ void myTIM2_Init()
 	// Relevant register: TIM2->CR1
 	TIM2->CR1 = ((uint16_t)0x008C);
 
-	/* Set clock prescaler value */
+	/* Set clock pre-scaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
 	/* Set auto-reloaded delay */
 	TIM2->ARR = myTIM2_PERIOD;
@@ -217,24 +222,23 @@ void EXTI0_1_IRQHandler()
 		else {
 			//	- Stop timer (TIM2->CR1).
 			TIM2->CR1 &= ~(TIM_CR1_CEN);
-			uint32_t count = TIM2->CNT;
-			uint32_t frequency = SystemCoreClock/count;
+			//	- Read out count register (TIM2->CNT).
+			uint32_t count = TIM2->CNT;		//set current count value to a variable for calculations
+			//	- Calculate signal period and frequency.
+			uint32_t frequency = SystemCoreClock/count;	//calculate frequency using TIM2 count value
 			uint32_t period = 1000000/frequency; //need to display as microseconds since decimal values display as 0
+			//	- Print calculated values to the console.
 			trace_printf("Timer Count: %d, Frequency: %d Hz, Period: %d uS \n",count, frequency, period);
-
-					//	- Read out count register (TIM2->CNT).
-
-					//	- Calculate signal period and frequency.
-					//	- Print calculated values to the console.
 					//	  NOTE: Function trace_printf does not work
 					//	  with floating-point numbers: you must use
 					//	  "unsigned int" type to print your signal
 					//	  period and frequency.
 		}
 
-		EXTI->PR |= EXTI_PR_PR1;
+
 		//
 		// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
+		EXTI->PR |= EXTI_PR_PR1;
 		//
 	}
 }
