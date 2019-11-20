@@ -79,24 +79,35 @@ void myADC1_Init(){
 
 	RCC->APB2ENR |= RCC_APB2ENR_ADCEN; /*Enable ADC clock*/
 	//calibrate ADC
+	trace_printf("Starting ADC Calibration...");
 	ADC1->CR = ADC_CR_ADCAL;
 	while(ADC1->CR = ADC_CR_ADCAL){}
-	trace_printf("Calibration Complete");
+	trace_printf("ADC Calibration Complete");
+	
+	/* ADC Configurations: 
+	 * Enable continuous conversion mode to always be converting pot value
+	 * With continous conversion, may run into data overrun events (converted data was not read
+	 * in time). Therefore we enable overrun mode to overwrite unread data with new converted data.
+	 * allows for accurate update to LCD 
+	 */
+	 ADC1->CRGR1 |= ADC_CFGR1_CONT;
+	 ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;				// Single versus Continuous??
+	 //Select channel 0 for PA0 (Pot)
+	 ADC1->CHSEL |= ADC_CHSELR_CHSEL0;
 	//enable ADC, check for flag before using
-
-
-
-
-
-
-
-
-
-
-
-	|= ADC_CR_ADEN; // Enable ADC
-
+	ADC1->CR |= ADC_CR_ADEN; 
+	while(!(ADC1->ISR & ADC_ISR_ADRDY)) {};			//REWRITE??
+	trace_printf("ADC Ready for operation");
 }
+void myDAC1_Init(){
+	/* NOTES:
+	*  DAC Output Voltage = VDDA * DOR/4095
+	*/
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;
+	DAC->CR |= DAC_CR_EN1;
+}
+
+	
 
 void myGPIOA_Init()
 {
@@ -109,12 +120,12 @@ void myGPIOA_Init()
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
 
 	// Configure PA0 as analog input for pot
-	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
+	GPIOA->MODER |= GPIO_MODER_MODER0;
 	/* Ensure no pull-up/pull-down for PA0 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR0);
 
 	// Configure PA4 as analog output for DAC
-	GPIOA->MODER &= ~(GPIO_MODER_MODER4);
+	GPIOA->MODER |= GPIO_MODER_MODER4;
 	/* Ensure no pull-up/pull-down for PA4 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR4);
 }
@@ -201,8 +212,6 @@ void TIM2_IRQHandler()
 /* This handler is declared in system/src/cmsis/vectors_stm32f0xx.c */
 void EXTI0_1_IRQHandler()
 {
-
-
 	/* Check if EXTI1 interrupt pending flag is indeed set */
 	if ((EXTI->PR & EXTI_PR_PR1) != 0)
 	{
@@ -211,35 +220,19 @@ void EXTI0_1_IRQHandler()
 
 		if(!(TIM2->CR1 & TIM_CR1_CEN)){
 
-			//	- Clear count register (TIM2->CNT).
 			//	- Start timer (TIM2->CR1).
-			TIM2->CNT &= 0x00000000;
 			TIM2->CR1 |= TIM_CR1_CEN;
-
-
 		}
 		//    Else (this is the second edge):
 		else {
 			//	- Stop timer (TIM2->CR1).
 			TIM2->CR1 &= ~(TIM_CR1_CEN);
-			//	- Read out count register (TIM2->CNT).
-			uint32_t count = TIM2->CNT;		//set current count value to a variable for calculations
-			//	- Calculate signal period and frequency.
-			uint32_t frequency = SystemCoreClock/count;	//calculate frequency using TIM2 count value
-			uint32_t period = 1000000/frequency; //need to display as microseconds since decimal values display as 0
-			//	- Print calculated values to the console.
-			trace_printf("Timer Count: %d, Frequency: %d Hz, Period: %d uS \n",count, frequency, period);
-					//	  NOTE: Function trace_printf does not work
-					//	  with floating-point numbers: you must use
-					//	  "unsigned int" type to print your signal
-					//	  period and frequency.
+			//clear count
+			TIM2->CNT &= 0x00000000;
 		}
-
-
-		//
+		
 		// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 		EXTI->PR |= EXTI_PR_PR1;
-		//
 	}
 }
 
