@@ -140,7 +140,10 @@ void myTIM2_Init()
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
-	TIM2->CR1 = ((uint16_t)0x008C);
+	TIM2->CR1 |= TIM_CR1_APRE 	//buffer auto-reload
+	TIM2->CR1 &= ~(TIM_CR1_DIR); //counter used as upcounter
+	TIM2->CR1 |= TIM_CR1_URS;	//stop on overflow
+	TIM2->CR1 |= 
 
 	/* Set clock pre-scaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
