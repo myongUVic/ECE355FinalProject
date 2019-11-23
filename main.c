@@ -68,7 +68,6 @@ main(int argc, char* argv[])
 	myTIM2_Init();		/* Initialize timer TIM2 */
 	myEXTI_Init();		/* Initialize EXTI */
 	myADC1_Init();		/* Initialize ADC  */
-
 	//myDAC1_Init();
 	//mySPI1_Init();
 
@@ -86,30 +85,31 @@ void myADC1_Init(){
 	//calibrate ADC
 	trace_printf("Starting ADC Calibration... \n");
 	ADC1->CR = ADC_CR_ADCAL;
-	while(ADC1->CR == ADC_CR_ADCAL){}
+	while(ADC1->CR == ADC_CR_ADCAL){}		//wait until calibration is complete(ADCAL flag)
 	trace_printf("ADC Calibration Complete \n");
-
 	/* ADC Configurations:
 	 * Enable continuous conversion mode to always be converting pot value
 	 * With continuous conversion, may run into data overrun events (converted data was not read
 	 * in time). Therefore we enable overrun mode to overwrite unread data with new converted data.
-	 * allows for accurate update to LCD
-	 */
-	 ADC1->CFGR1 |= ADC_CFGR1_CONT;
-	 ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;				// Single versus Continuous??
+	 * allows for accurate update to LCD */
+	 ADC1->CFGR1 |= ADC_CFGR1_CONT;		//continuous mode
+	 ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;	// overrun mode
 	 //Select channel 0 for PA0 (Pot)
 	 ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
 	//enable ADC, check for flag before using
 	ADC1->CR |= ADC_CR_ADEN;
-	while(!(ADC1->ISR & ADC_ISR_ADRDY)) {};			//REWRITE??
+	while(!(ADC1->ISR & ADC_ISR_ADRDY)) {};
 	trace_printf("ADC Ready for operation \n");
-
 }
 void testADC(){
+	//Start ADC
 	ADC1->CR |= ADC_CR_ADSTART;
+	//Read ACD data register to int32
 	uint32_t adc_val = ADC1->DR;
+	//do math to get resister value of pot
 	uint32_t res = (adc_val*5000)/4095;
-	trace_printf("ADC Value %u Ohms \n", res);
+	trace_printf("ADC Value %u \n", adc_val);
+	trace_printf("Resistance %u Ohms \n", res);
 }
 void myDAC1_Init(){
 	/* NOTES:
@@ -119,9 +119,12 @@ void myDAC1_Init(){
 	DAC->CR |= DAC_CR_EN1;
 }
 void mySPI1_Init(){
+	//Enable SPI1 Clock
+	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+	//create SPI Initialization Structure instance and create a pointer to said instance
 	SPI_InitTypeDef SPI_InitStructInfo;
 	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
-	//[......]
+	//SPI parameters
 	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;				//uint16_t 0xC000
 	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;							//uint16_t 0x0104
 	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;						//uint16_t 0x0700
@@ -131,9 +134,9 @@ void mySPI1_Init(){
 	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;	//chose the largest baud rate for maximum time between
 	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;					//uint16_t 0x0000
 	SPI_InitStruct->SPI_CRCPolynomial = 7;
-	//[.....]
+	//Initialize SPI1 using above parameters
 	SPI_Init(SPI1, SPI_InitStruct);
-	//[.....]
+	//Enable SPI
 	SPI_Cmd(SPI1, ENABLE);
 
 }
@@ -144,7 +147,7 @@ void myGPIOA_Init()
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
 	// Configure PA0 as analog input for pot
-	GPIOA->MODER |= GPIO_MODER_MODER0;
+	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
 	/* Ensure no pull-up/pull-down for PA0 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR0);
 
@@ -174,19 +177,34 @@ void myGPIOB_Init(){
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
 }
+void LCD_Delay(){
+	unsigned int n;
+	for(n = 0;n<10000;n++);
+}
+/*void Transfer2LCD(uint8_t data){
+	//Force your LCK signal to 0
+	GPIOB->MODER &= GPIOB_MODER_MODER4_0;
+	//Wait until SPI1 is ready (TXE = 1 or BSY = 0)
+	while((SPI->SR |= SPI_SR_TXE) = 0xFFFF);
+	//Assumption: your data holds 8 bits to be sent
+	SPI_SendData8(SPI1,data);
+	//Wait until SPI is not busy
+	while((SPI->SR &= SPI_SR_BSY) != 0x0000);
+	//Force your LCK signal to 1
+	GPIOB->MODER |= GPIOB_MODER_MODER4_0;
+}*/
 
 void myTIM2_Init()
 {
-	/* Enable clock for TIM2 peripheral */
-	// Relevant register: RCC->APB1ENR
+	/* Enable clock for TIM2 peripheral (Relevant register: RCC->APB1ENR) */
 	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
-
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
+	TIM2->CR1 = ((uint16_t)0x008C);
 	//TIM2->CR1 |= TIM_CR1_APRE 	//buffer auto-reload
-	//TIM2->CR1 &= ~(TIM_CR1_DIR); //counter used as upcounter
-	//TIM2->CR1 |= TIM_CR1_URS;	//stop on overflow
+	//TIM2->CR1 &= ~(TIM_CR1_DIR); 	//counter used as upcounter
+	//TIM2->CR1 |= TIM_CR1_URS;		//stop on overflow
 	//TIM2->CR1 |=
 
 	/* Set clock pre-scaler value */
@@ -194,20 +212,16 @@ void myTIM2_Init()
 	/* Set auto-reloaded delay */
 	TIM2->ARR = myTIM2_PERIOD;
 
-	/* Update timer registers */
-	// Relevant register: TIM2->EGR
+	/* Update timer registers (Relevant register: TIM2->EGR) */
 	TIM2->EGR = ((uint16_t)0x0001);
 
-	/* Assign TIM2 interrupt priority = 0 in NVIC */
-	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
+	/* Assign TIM2 interrupt priority = 0 in NVIC (Relevant register: NVIC->IP[3], or use NVIC_SetPriority)*/
 	NVIC_SetPriority(TIM2_IRQn, 0);
 
-	/* Enable TIM2 interrupts in NVIC */
-	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+	/* Enable TIM2 interrupts in NVIC (Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ) */
 	NVIC_EnableIRQ(TIM2_IRQn);
 
-	/* Enable update interrupt generation */
-	// Relevant register: TIM2->DIER
+	/* Enable update interrupt generation (Relevant register: TIM2->DIER) */
 	TIM2->DIER |= TIM_DIER_UIE;
 }
 
@@ -232,8 +246,6 @@ void myEXTI_Init()
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
-
-
 }
 
 
