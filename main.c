@@ -49,18 +49,20 @@ void myGPIOB_Init(void);
 void myTIM2_Init(void);
 void myEXTI_Init(void);
 void myADC1_Init(void);
-void testADC(void);
 void myDAC1_Init(void);
 void mySPI1_Init(void);
+void myLCD_Init();
+
 void LCD_Delay();
 void Transfer2LCD(uint8_t data);
-void send_instr(uint8_t txt, uint8_t instr);
-void myLCD_Init();
+void send_instr(uint8_t instr);
+void send_var(uint8_t var);
+
+void testADC(void);
 void testLCD(void);
 
 // Your global variables...
-char* topline;
-char* bottomline;
+
 
 main(int argc, char* argv[])
 
@@ -78,13 +80,15 @@ main(int argc, char* argv[])
 	mySPI1_Init();
 	myLCD_Init();
 
-	topline = "Words";
-	bottomline = "Stuff";
 
+	uint8_t test = 0xF1;
+
+	//send_instr(0x01);		//0000 0001 (clears display)
 	while (1)
 	{
+	//SPI_SendData8(SPI1, test);
+	//LCD_Delay();
 	testLCD();
-
 	}
 
 	return 0;
@@ -119,7 +123,7 @@ void testADC(){
 	uint32_t adc_val = ADC1->DR;
 	//do math to get resister value of pot
 	uint32_t res = (adc_val*5000)/4095;
-	trace_printf("ADC Value %u \n", adc_val);
+	//trace_printf("ADC Value %u \n", adc_val);
 	trace_printf("Resistance %u Ohms \n", res);
 }
 void myDAC1_Init(){
@@ -152,63 +156,101 @@ void mySPI1_Init(){
 	SPI_Cmd(SPI1, ENABLE);
 }
 void LCD_Delay(){
-	unsigned int n;
-	for(n = 0;n<10000;n++);
+	volatile unsigned int n;
+	for(n=0;n<500000;n++);
 }
 void Transfer2LCD(uint8_t data){
 	//Force your LCK signal to 0 using bitset/reset register
-	GPIOB->BSRR &= GPIO_BSRR_BR_4;
+	GPIOB->BSRR |= GPIO_BSRR_BR_4;
 	//Wait until SPI1 is ready (TXE = 1 or BSY = 0)
 	while((SPI1->SR &= SPI_SR_BSY) != 0x0000);
 	//while((SPI1->SR |= SPI_SR_TXE) = 0xFFFF);
-	//Assumption: your data holds 8 bits to be sent
+	//Assumption: your data holds 8 bits to be sent, send data over MOSI
 	SPI_SendData8(SPI1,data);
+	SPI1->DR = data;
 	//Wait until SPI is not busy
 	while((SPI1->SR &= SPI_SR_BSY) != 0x0000);
 	//Force your LCK signal to 1
 	GPIOB->BSRR |= GPIO_BSRR_BS_4;
 }
-void send_instr(uint8_t txt, uint8_t instr){
-	uint8_t EN = 0x80;
-	uint8_t RS = instr? 0x00:0x40; // 1 = data, 0 = instruction
+void send_instr(uint8_t instr){
 	//split 8 bit instructions into two 4bit (high, low)
-	uint8_t H_half = (txt & 0xF0) >> 4 | RS;
-	uint8_t L_half = (txt & 0x0F) | RS;
+	uint8_t H_half = (instr & 0xF0) >> 4 ;
+	uint8_t L_half = (instr & 0x0F);
 
 	//send high half using 0-1-0 EN pulse sequence via Transfer2LCD
-	Transfer2LCD(H_half);
-	Transfer2LCD(EN | H_half);
-	Transfer2LCD(H_half);
+	Transfer2LCD(0x00 | H_half);
+	Transfer2LCD(0x80 | H_half);
+	Transfer2LCD(0x00 | H_half);
 	LCD_Delay();
 
 	//send low half
-	Transfer2LCD(L_half);
-	Transfer2LCD(EN | L_half);
-	Transfer2LCD(L_half);
+	Transfer2LCD(0x00 | L_half);
+	Transfer2LCD(0x80 | L_half);
+	Transfer2LCD(0x00 | L_half);
+	LCD_Delay();
+}
+void send_var(uint8_t var){
+	//split 8 bit instructions into two 4bit (high, low)
+	uint8_t H_half = (var & 0xF0) >> 4 ;
+	uint8_t L_half = (var & 0x0F);
+
+	//send high half using 0-1-0 EN pulse sequence via Transfer2LCD
+	Transfer2LCD(0x40 | H_half);
+	Transfer2LCD(0xC0 | H_half);
+	Transfer2LCD(0x40 | H_half);
+	LCD_Delay();
+
+	//send low half
+	Transfer2LCD(0x40 | L_half);
+	Transfer2LCD(0xC0 | L_half);
+	Transfer2LCD(0x40 | L_half);
 	LCD_Delay();
 }
 void myLCD_Init(){
-	//set to 4 bit mode
-	Transfer2LCD(0x00);
-	Transfer2LCD(0x80);
-	Transfer2LCD(0x00);
+	//set function sent 3 times
+	LCD_Delay();
+
+	Transfer2LCD(0x03);
+	Transfer2LCD(0x03|0x80);
+	Transfer2LCD(0x03);
+	LCD_Delay();
+
+	Transfer2LCD(0x03);
+	Transfer2LCD(0x03|0x80);
+	Transfer2LCD(0x03);
+	LCD_Delay();
+
+	Transfer2LCD(0x03);
+	Transfer2LCD(0x03|0x80);
+	Transfer2LCD(0x03);
+	LCD_Delay();
+
+	//set 4bit mode
+	Transfer2LCD(0x02);
+	Transfer2LCD(0x02|0x80);
+	Transfer2LCD(0x02);
+	LCD_Delay();
+
 	//send instructions to enable proper LCD operation
-	send_instr(0x20, 1);		//0010 0000 (enable 4-bit interface)
-	send_instr(0x28, 1);		//0010 1000 (Dl = 0, N = 1, F = 0)
-	send_instr(0x0C, 1);		//0000 1100 (D = 1, C = 0, B = 0)
-	send_instr(0x06, 1);		//0000 0110 (I/D = 1, S = 0)
-	send_instr(0x01, 1);		//0000 0001 (clears display)
-	trace_printf("LCD ready for operation \n");
+	send_instr(0x28);		//0010 1000 (Dl = 0, N = 1, F = 0)
+	send_instr(0x0C);		//0000 1100 (D = 1, C = 0, B = 0)
+	send_instr(0x06);		//0000 0110 (I/D = 1, S = 0)
+	send_instr(0x01);		//0000 0001 (clears display)
 }
 void testLCD(){
-	send_instr(0x80,1);
-
+	send_instr(0x80);
+	send_var(0x52);
+	send_var(0x52);
+	send_var(0x52);
+	send_var(0x52);
+	send_var(0x52);
+	send_var(0x52);
 }
 void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral (Relevant register: RCC->AHBENR) */
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-
 	// Configure PA0 as analog input for pot
 	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
 	/* Ensure no pull-up/pull-down for PA0 */
@@ -237,8 +279,8 @@ void myGPIOB_Init(){
 		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR3);
 		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR5);
 	//Ensure no pull-up/pull-down for PB3, PB5
-		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
-		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
+		//GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
+		//GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
 }
 void myTIM2_Init()
 {
