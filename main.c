@@ -50,11 +50,17 @@ void myTIM2_Init(void);
 void myEXTI_Init(void);
 void myADC1_Init(void);
 void testADC(void);
-//void myDAC1_Init(void);
-//void mySPI1_Init(void);
+void myDAC1_Init(void);
+void mySPI1_Init(void);
+void LCD_Delay();
+void Transfer2LCD(uint8_t data);
+void send_instr(uint8_t txt, uint8_t instr);
+void myLCD_Init();
+void testLCD(void);
 
 // Your global variables...
-
+char* topline;
+char* bottomline;
 
 main(int argc, char* argv[])
 
@@ -68,12 +74,17 @@ main(int argc, char* argv[])
 	myTIM2_Init();		/* Initialize timer TIM2 */
 	myEXTI_Init();		/* Initialize EXTI */
 	myADC1_Init();		/* Initialize ADC  */
-	//myDAC1_Init();
-	//mySPI1_Init();
+	myDAC1_Init();
+	mySPI1_Init();
+	myLCD_Init();
+
+	topline = "Words";
+	bottomline = "Stuff";
 
 	while (1)
 	{
-	testADC();
+	testLCD();
+
 	}
 
 	return 0;
@@ -116,6 +127,7 @@ void myDAC1_Init(){
 	*  DAC Output Voltage = VDDA * DOR/4095
 	*/
 	RCC->APB1ENR |= RCC_APB1ENR_DACEN;		//enable clock for DAC operation, then turn on
+	DAC->CR &= ~(DAC_CR_BOFF1);				//enable output buffer
 	DAC->CR |= DAC_CR_EN1;
 }
 void mySPI1_Init(){
@@ -138,9 +150,60 @@ void mySPI1_Init(){
 	SPI_Init(SPI1, SPI_InitStruct);
 	//Enable SPI
 	SPI_Cmd(SPI1, ENABLE);
+}
+void LCD_Delay(){
+	unsigned int n;
+	for(n = 0;n<10000;n++);
+}
+void Transfer2LCD(uint8_t data){
+	//Force your LCK signal to 0 using bitset/reset register
+	GPIOB->BSRR &= GPIO_BSRR_BR_4;
+	//Wait until SPI1 is ready (TXE = 1 or BSY = 0)
+	while((SPI1->SR &= SPI_SR_BSY) != 0x0000);
+	//while((SPI1->SR |= SPI_SR_TXE) = 0xFFFF);
+	//Assumption: your data holds 8 bits to be sent
+	SPI_SendData8(SPI1,data);
+	//Wait until SPI is not busy
+	while((SPI1->SR &= SPI_SR_BSY) != 0x0000);
+	//Force your LCK signal to 1
+	GPIOB->BSRR |= GPIO_BSRR_BS_4;
+}
+void send_instr(uint8_t txt, uint8_t instr){
+	uint8_t EN = 0x80;
+	uint8_t RS = instr? 0x00:0x40; // 1 = data, 0 = instruction
+	//split 8 bit instructions into two 4bit (high, low)
+	uint8_t H_half = (txt & 0xF0) >> 4 | RS;
+	uint8_t L_half = (txt & 0x0F) | RS;
+
+	//send high half using 0-1-0 EN pulse sequence via Transfer2LCD
+	Transfer2LCD(H_half);
+	Transfer2LCD(EN | H_half);
+	Transfer2LCD(H_half);
+	LCD_Delay();
+
+	//send low half
+	Transfer2LCD(L_half);
+	Transfer2LCD(EN | L_half);
+	Transfer2LCD(L_half);
+	LCD_Delay();
+}
+void myLCD_Init(){
+	//set to 4 bit mode
+	Transfer2LCD(0x00);
+	Transfer2LCD(0x80);
+	Transfer2LCD(0x00);
+	//send instructions to enable proper LCD operation
+	send_instr(0x20, 1);		//0010 0000 (enable 4-bit interface)
+	send_instr(0x28, 1);		//0010 1000 (Dl = 0, N = 1, F = 0)
+	send_instr(0x0C, 1);		//0000 1100 (D = 1, C = 0, B = 0)
+	send_instr(0x06, 1);		//0000 0110 (I/D = 1, S = 0)
+	send_instr(0x01, 1);		//0000 0001 (clears display)
+	trace_printf("LCD ready for operation \n");
+}
+void testLCD(){
+	send_instr(0x80,1);
 
 }
-
 void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral (Relevant register: RCC->AHBENR) */
@@ -171,29 +234,12 @@ void myGPIOB_Init(){
 	/* Configure PB4 for 74HC595 output */
 		GPIOB->MODER |= GPIO_MODER_MODER4_0;
 	//set alternative function to 0 for PB3, PB5
-		//GPIOB->AFR &= ~(GPIO_AFRL_AFR3);
-		//GPIOB->AFR &= ~(GPIO_AFRL_AFR5);
+		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR3);
+		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR5);
 	//Ensure no pull-up/pull-down for PB3, PB5
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
 		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
 }
-void LCD_Delay(){
-	unsigned int n;
-	for(n = 0;n<10000;n++);
-}
-/*void Transfer2LCD(uint8_t data){
-	//Force your LCK signal to 0
-	GPIOB->MODER &= GPIOB_MODER_MODER4_0;
-	//Wait until SPI1 is ready (TXE = 1 or BSY = 0)
-	while((SPI->SR |= SPI_SR_TXE) = 0xFFFF);
-	//Assumption: your data holds 8 bits to be sent
-	SPI_SendData8(SPI1,data);
-	//Wait until SPI is not busy
-	while((SPI->SR &= SPI_SR_BSY) != 0x0000);
-	//Force your LCK signal to 1
-	GPIOB->MODER |= GPIOB_MODER_MODER4_0;
-}*/
-
 void myTIM2_Init()
 {
 	/* Enable clock for TIM2 peripheral (Relevant register: RCC->APB1ENR) */
@@ -224,8 +270,6 @@ void myTIM2_Init()
 	/* Enable update interrupt generation (Relevant register: TIM2->DIER) */
 	TIM2->DIER |= TIM_DIER_UIE;
 }
-
-
 void myEXTI_Init()
 {
 	/* Map EXTI1 line to PA1 */
@@ -247,8 +291,6 @@ void myEXTI_Init()
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
 }
-
-
 /* This handler is declared in system/src/cmsis/vectors_stm32f0xx.c */
 void TIM2_IRQHandler()
 {
