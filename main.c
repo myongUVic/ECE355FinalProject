@@ -66,7 +66,7 @@ void print_Res();
 void print_Fre();
 
 // Your global variables...
-
+volatile uint32_t timer_count;
 
 main(int argc, char* argv[])
 
@@ -88,10 +88,28 @@ main(int argc, char* argv[])
 	//testLCD();
 	while (1)
 	{
-
 	//testADC();
+	//start ADC conversion
+	ADC1->CR |= ADC_CR_ADSTART;
+	//Read ACD data register to integer
+	uint32_t adc_val = ADC1->DR;
+	//calculate and print resistance to LCD
+	//do math to get resister value of pot
+	uint32_t res = (adc_val*5000)/4095;
+	//generate resistance string
+	char res_string[9];
+	snprintf(res_string, sizeof(res_string),"R:%uOh",res);
+	LCD_WriteStr(res_string,1);
+	//read TIM2 count
+	NVIC_DisableIRQ(EXTI0_1_IRQn);
+	//uint32_t TIM2_count = timer_count;
+	double freq = timer_count;
+	trace_printf("%d \n",freq);
+	DAC->DHR12R1 = (DAC_DHR12R1_DACC1DHR & adc_val);
 
-	print_Res();
+
+	//print_Fre();
+
 
 	}
 
@@ -123,7 +141,7 @@ void myADC1_Init(){
 void testADC(){
 	//Start ADC
 	ADC1->CR |= ADC_CR_ADSTART;
-	//Read ACD data register to int32
+	//Read ACD data register to integer
 	uint32_t adc_val = ADC1->DR;
 	//do math to get resister value of pot
 	uint32_t res = (adc_val*5000)/4095;
@@ -131,18 +149,10 @@ void testADC(){
 	trace_printf("Resistance %u Ohms \n", res);
 }
 void print_Res(){
-	//start ADC conversion
-	ADC1->CR |= ADC_CR_ADSTART;
-	//Read ACD data register to integer
-	uint32_t adc_val = ADC1->DR;
-	//do math to get resister value of pot
-	uint32_t res = (adc_val*5000)/4095;
-	//generate resistance string
-	char res_string[9];
-	snprintf(res_string, sizeof(res_string),"R:%uOh",res);
-	LCD_WriteStr(res_string,1);
+
 }
 void print_Fre(){
+
 
 }
 void LCD_WriteStr(const char* string, unsigned int line){
@@ -152,10 +162,12 @@ void LCD_WriteStr(const char* string, unsigned int line){
 		instr |=0x40;
 	}
 	send_instr(instr);
+	//write string so long as string has values in array
 	unsigned int q;
 	for(q=0;string[q]!=0;q++){
 		send_var(string[q]);
 	}
+	//have empty spaces for any unused LCD space
 	for(;q<9;q++){
 		send_var(0x20);
 	}
@@ -168,87 +180,81 @@ void myDAC1_Init(){
 	DAC->CR &= ~(DAC_CR_BOFF1);				//enable output buffer
 	DAC->CR |= DAC_CR_EN1;
 }
-void mySPI1_Init(){										//COMMENT
+void mySPI1_Init(){
 	// enable SPI1 clock
 	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
 
-	// create instance of SPI struct
+	// create SPI instance and create a pointer to said instance
 	SPI_InitTypeDef SPI_InitStructInfo;
-	// create pointer to instance of SPI struct
 	SPI_InitTypeDef* SPI_InitStruct = &SPI_InitStructInfo;
 
-	// set SPI struct parameters
+	// SPI parameters (defined in stm32f0xx_spi.h)
 	SPI_InitStruct->SPI_Direction = SPI_Direction_1Line_Tx;
 	SPI_InitStruct->SPI_Mode = SPI_Mode_Master;
 	SPI_InitStruct->SPI_DataSize = SPI_DataSize_8b;
 	SPI_InitStruct->SPI_CPOL = SPI_CPOL_Low;
 	SPI_InitStruct->SPI_CPHA = SPI_CPHA_1Edge;
 	SPI_InitStruct->SPI_NSS = SPI_NSS_Soft;
-	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;
+	SPI_InitStruct->SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_256;		//chose the largest baud rate for maximum time between instructions
 	SPI_InitStruct->SPI_FirstBit = SPI_FirstBit_MSB;
 	SPI_InitStruct->SPI_CRCPolynomial = 7;
 
-	// Initialize SPI1 based on struct parameters
+	// Initialize SPI1 based on above parameters
 	SPI_Init(SPI1, SPI_InitStruct);
 	// Enable SPI1
 	SPI_Cmd(SPI1, ENABLE);
 
 }
 void LCD_Delay(){
-
 	// volatile int so delay doesn't get optimized out
 	volatile unsigned int n;
-	// for loop to 5000 for delay effect
+	// for loop of 5000 to simulate delay
 	for(n=0;n<5000;n++);
 
 }
-void LCD_Transmit(uint8_t data){				//COMMENT
-	// force lck to 0
+void LCD_Transmit(uint8_t data){
+	//Force your LCK signal to 0 using bitset/reset register
 	GPIOB->BSRR |= GPIO_BSRR_BR_4;
-
-	// wait for SPI ready
+	//Wait until SPI1 is ready (TXE = 1 or BSY = 0)
 	while((SPI1->SR & SPI_SR_BSY) != 0x0000);
-
-	// send 8 bits over MOSI
+	//while((SPI1->SR |= SPI_SR_TXE) = 0xFFFF);
+	//Assumption: your data holds 8 bits to be sent, send data over MOSI
 	SPI_SendData8(SPI1, data);
-
-	// wait for SPI not busy
+	//Wait until SPI is not busy
 	while((SPI1->SR & SPI_SR_BSY) != 0x0000);
-
-	// force lck to 1
+	//Force your LCK signal to 1
 	GPIOB->BSRR |= GPIO_BSRR_BS_4;
 }
-void send_instr(uint8_t instr){							//COMMENT
+void send_instr(uint8_t instr){
 	//split 8 bit instructions into two 4bit (high, low)
 	uint8_t H_half = (instr & 0xF0) >> 4;
 	uint8_t L_half = (instr & 0x0F);
 
-	// transmit upper half of instruction to LCD
+	//send high half using 0-1-0 EN pulse sequence through SPI
 	LCD_Transmit(0x00 | H_half);
 	LCD_Transmit(0x80 | H_half);
 	LCD_Transmit(0x00 | H_half);
 	LCD_Delay();
 
-	// transmit lower half of instruction to LCD
+	//send low half
 	LCD_Transmit(0x00 | L_half);
 	LCD_Transmit(0x80 | L_half);
 	LCD_Transmit(0x00 | L_half);
 	LCD_Delay();
 
 }
-void send_var(uint8_t var){									//COMMENT
+void send_var(uint8_t var){
 	//split 8 bit instructions into two 4bit (high, low)
-	// split character into upper and lower 4 bits
 	uint8_t H_half = (var & 0xF0) >> 4;
 	uint8_t L_half = (var & 0x0F);
 
-	// transmit upper half of character to LCD
+	//send high half using 0-1-0 EN pulse sequence via LCD_Transmit
 	LCD_Transmit(0x40 | H_half);
 	LCD_Transmit(0xC0 | H_half);
 	LCD_Transmit(0x40 | H_half);
 	LCD_Delay();
 
-	// transmit lower half of character to LCD
+	//send low half
 	LCD_Transmit(0x40 | L_half);
 	LCD_Transmit(0xC0 | L_half);
 	LCD_Transmit(0x40 | L_half);
@@ -256,9 +262,8 @@ void send_var(uint8_t var){									//COMMENT
 
 }
 void myLCD_Init(){
-	//set function sent 3 times
 	LCD_Delay();
-
+	//set function sent 3 times
 	LCD_Transmit(0x03);
 	LCD_Transmit(0x03|0x80);
 	LCD_Transmit(0x03);
@@ -286,7 +291,8 @@ void myLCD_Init(){
 	send_instr(0x06);		//0000 0110 (I/D = 1, S = 0)
 	send_instr(0x01);		//0000 0001 (clears display)
 }
-void testLCD(){																		//REMOVE
+//Test function for proper LCD operation
+void testLCD(){
 	char* topline = "123456789";
 	char* botline = "123456789  ";
 
@@ -307,14 +313,12 @@ void myGPIOA_Init()
 	GPIOA->MODER &= ~(GPIO_MODER_MODER0);
 	/* Ensure no pull-up/pull-down for PA0 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR0);
-
 	/* Configure PA1 as input (Relevant register: GPIOA->MODER)*/
 	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
 	/* Ensure no pull-up/pull-down for PA1 (Relevant register: GPIOA->PUPDR) */
 	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);
-
 	// Configure PA4 as analog input for DAC
-	GPIOA->MODER |= GPIO_MODER_MODER4;
+	GPIOA->MODER &= ~(GPIO_MODER_MODER4);
 	/* Ensure no pull-up/pull-down for PA4 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR4);
 }
@@ -341,11 +345,11 @@ void myTIM2_Init()
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
-	TIM2->CR1 = ((uint16_t)0x008C);
-	//TIM2->CR1 |= TIM_CR1_APRE 	//buffer auto-reload
-	//TIM2->CR1 &= ~(TIM_CR1_DIR); 	//counter used as upcounter
-	//TIM2->CR1 |= TIM_CR1_URS;		//stop on overflow
-	//TIM2->CR1 |=
+	TIM2->CR1 &= ~(TIM_CR1_DIR);	// clear direction bit
+	TIM2->CR1 |= TIM_CR1_ARPE; 		// buffer auto-reload
+	TIM2->CR1 |= TIM_CR1_URS;		// counter used as up counter
+	TIM2->CR1 |= TIM_CR1_OPM;		// stop on overflow
+	TIM2->CR1 &= ~(TIM_CR1_UDIS);	// clear update event disable (i.e. enable events)
 
 	/* Set clock pre-scaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
@@ -384,6 +388,7 @@ void myEXTI_Init()
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
+	TIM2->CNT = 0x00;
 }
 /* This handler is declared in system/src/cmsis/vectors_stm32f0xx.c */
 void TIM2_IRQHandler()
@@ -410,24 +415,24 @@ void EXTI0_1_IRQHandler()
 	/* Check if EXTI1 interrupt pending flag is indeed set */
 	if ((EXTI->PR & EXTI_PR_PR1) != 0)
 	{
-		//
-		// 1. If this is the first edge:
+	/* Check if EXTI1 interrupt pending flag is indeed set */
+		if ((EXTI->PR & EXTI_PR_PR1) != 0)
+		{
+			// toggle timer start/stop
+			TIM2->CR1 ^= TIM_CR1_CEN;
 
-		if(!(TIM2->CR1 & TIM_CR1_CEN)){
+			// if timer is stopped
+			if(!(TIM2->CR1 & TIM_CR1_CEN))
+			{
+				// read timer count
+				timer_count = TIM2->CNT;
+				// clear count
+				TIM2->CNT = 0x00000000;
+			}
 
-			//	- Start timer (TIM2->CR1).
-			TIM2->CR1 |= TIM_CR1_CEN;
+			// clear interrupt pending bit
+			EXTI->PR |= EXTI_PR_PR1;
 		}
-		//    Else (this is the second edge):
-		else {
-			//	- Stop timer (TIM2->CR1).
-			TIM2->CR1 &= ~(TIM_CR1_CEN);
-			//clear count
-			TIM2->CNT &= 0x00000000;
-		}
-
-		// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
-		EXTI->PR |= EXTI_PR_PR1;
 	}
 }
 
