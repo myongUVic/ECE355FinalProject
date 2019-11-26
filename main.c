@@ -44,6 +44,7 @@
 /* Maximum possible setting for overflow */
 #define myTIM2_PERIOD ((uint32_t)0xFFFFFFFF)
 
+/* Initialization Functions */
 void myGPIOA_Init(void);
 void myGPIOB_Init(void);
 void myTIM2_Init(void);
@@ -51,39 +52,42 @@ void myEXTI_Init(void);
 void myADC1_Init(void);
 void myDAC1_Init(void);
 void mySPI1_Init(void);
-void myLCD_Init();
-
+void myLCD_Init(void);
+/* LCD functions */
 void LCD_Delay();
 void LCD_Transmit(uint8_t data);
 void send_instr(uint8_t instr);
 void send_var(uint8_t var);
-void LCD_WriteStr(const char* string, unsigned int line);
-
+void LCD_WriteStrTop(const char* string);
+void LCD_WriteStrBot(const char* string);
+/* Test functions (not used) */
 void testADC(void);
 void testLCD(void);
 
-void print_Res();
-void print_Fre();
-
 // Your global variables...
 volatile uint32_t timer_count;
-
 main(int argc, char* argv[])
 
+
+/* R1 = 5.019kOhms
+ * R2 = 5.002kOhms
+ * C1 = 0.1uF
+ * Calculated frequency = 1.443/(R1+2R2)C1 = 960Hz
+ * Measured@Rpot = 0 => 702Hz
+ * Measured@Rpot = 5000 => 1099Hz
+ *
+ *
+ *
+ */
 {
-
-	trace_printf("This is the Final Part of Introductory Lab...\n");
-	trace_printf("System clock: %u Hz\n", SystemCoreClock);
-
 	myGPIOA_Init();		/* Initialize I/O port PA */
 	myGPIOB_Init();		/* Initialize I/O port PB */
 	myTIM2_Init();		/* Initialize timer TIM2 */
 	myEXTI_Init();		/* Initialize EXTI */
 	myADC1_Init();		/* Initialize ADC  */
-	myDAC1_Init();
-	mySPI1_Init();
-	myLCD_Init();
-
+	myDAC1_Init();		/* Initialize DAC */
+	mySPI1_Init();		/* Initialize SPI */
+	myLCD_Init();		/* Initialize Hitachi HD44780 LCD Display */
 
 	//testLCD();
 	while (1)
@@ -93,74 +97,70 @@ main(int argc, char* argv[])
 	ADC1->CR |= ADC_CR_ADSTART;
 	//Read ACD data register to integer
 	uint32_t adc_val = ADC1->DR;
-	//calculate and print resistance to LCD
 	//do math to get resister value of pot
 	uint32_t res = (adc_val*5000)/4095;
 	//generate resistance string
 	char res_string[9];
+	//print resistance to LCD
 	snprintf(res_string, sizeof(res_string),"R:%uOh",res);
-	LCD_WriteStr(res_string,1);
-	//read TIM2 count
+	LCD_WriteStrBot(res_string);
+
+
+	//disable timer interrupts to poll timer count on TIM2->CNT register
 	NVIC_DisableIRQ(EXTI0_1_IRQn);
-	//uint32_t TIM2_count = timer_count;
-	double freq = timer_count;
-	trace_printf("%d \n",freq);
+	uint32_t TIM2_count = timer_count;
+	NVIC_EnableIRQ(EXTI0_1_IRQn);
+	//do math to get frequency from core clock frequency
+	int freq = SystemCoreClock/TIM2_count;
+	//generate frequency string
+	char freq_string[9];
+	//print frequency to LCD
+	snprintf(freq_string,sizeof(res_string),"F:%uHz",freq);
+	LCD_WriteStrTop(freq_string);
+	//trace_printf("%d \n",TIM2_count);
+	//place ADC value in DAC for conversion
 	DAC->DHR12R1 = (DAC_DHR12R1_DACC1DHR & adc_val);
-
-
-	//print_Fre();
-
-
 	}
 
 	return 0;
 
 }
+/* Initialize ADC */
 void myADC1_Init(){
-
 	RCC->APB2ENR |= RCC_APB2ENR_ADCEN; /*Enable ADC clock*/
 	//calibrate ADC
-	trace_printf("Starting ADC Calibration... \n");
 	ADC1->CR = ADC_CR_ADCAL;
 	while(ADC1->CR == ADC_CR_ADCAL){}		//wait until calibration is complete(ADCAL flag)
-	trace_printf("ADC Calibration Complete \n");
+
 	/* ADC Configurations:
 	 * Enable continuous conversion mode to always be converting pot value
 	 * With continuous conversion, may run into data overrun events (converted data was not read
 	 * in time). Therefore we enable overrun mode to overwrite unread data with new converted data.
 	 * allows for accurate update to LCD */
+
 	 ADC1->CFGR1 |= ADC_CFGR1_CONT;		//continuous mode
 	 ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;	// overrun mode
 	 //Select channel 0 for PA0 (Pot)
 	 ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
-	//enable ADC, check for flag before using
+	//enable ADC, wait for flag before using
 	ADC1->CR |= ADC_CR_ADEN;
 	while(!(ADC1->ISR & ADC_ISR_ADRDY)) {};
-	trace_printf("ADC Ready for operation \n");
+
 }
+/* Test function for proper ADC conversion */
 void testADC(){
 	//Start ADC
 	ADC1->CR |= ADC_CR_ADSTART;
 	//Read ACD data register to integer
 	uint32_t adc_val = ADC1->DR;
-	//do math to get resister value of pot
+	//do math to get resister value of pot, then print to console
 	uint32_t res = (adc_val*5000)/4095;
 	//trace_printf("ADC Value %u \n", adc_val);
 	trace_printf("Resistance %u Ohms \n", res);
 }
-void print_Res(){
-
-}
-void print_Fre(){
-
-
-}
-void LCD_WriteStr(const char* string, unsigned int line){
-	//check which line to be written to
+/* Write string to top half of LCD display */
+void LCD_WriteStrTop(const char* string){
 	uint8_t instr = 0x80;
-	if(line==1){
-		instr |=0x40;
-	}
 	send_instr(instr);
 	//write string so long as string has values in array
 	unsigned int q;
@@ -172,14 +172,29 @@ void LCD_WriteStr(const char* string, unsigned int line){
 		send_var(0x20);
 	}
 }
-void myDAC1_Init(){
-	/* NOTES:
-	*  DAC Output Voltage = VDDA * DOR/4095
-	*/
-	RCC->APB1ENR |= RCC_APB1ENR_DACEN;		//enable clock for DAC operation, then turn on
-	DAC->CR &= ~(DAC_CR_BOFF1);				//enable output buffer
-	DAC->CR |= DAC_CR_EN1;
+/* Write string to bottom half of LCD display */
+void LCD_WriteStrBot(const char* string){
+	uint8_t instr = 0xC0;
+	send_instr(instr);
+	//write string so long as string has values in array
+	unsigned int q;
+	for(q=0;string[q]!=0;q++){
+		send_var(string[q]);
+	}
+	//have empty spaces for any unused LCD space
+	for(;q<9;q++){
+		send_var(0x20);
+	}
 }
+/* Initalize DAC */
+void myDAC1_Init(){
+	// Enable clock for DAC peripheral
+	RCC->APB1ENR |= RCC_APB1ENR_DACEN;
+	// enable DAC channel 1 and output buffer
+	DAC->CR |= DAC_CR_EN1;
+	DAC->CR &= ~(DAC_CR_BOFF1);
+}
+/* Initialize SPI using stm32f0xx_spi.h */
 void mySPI1_Init(){
 	// enable SPI1 clock
 	RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
@@ -205,13 +220,15 @@ void mySPI1_Init(){
 	SPI_Cmd(SPI1, ENABLE);
 
 }
+/* simulated delay for LCD using for loop. */
 void LCD_Delay(){
 	// volatile int so delay doesn't get optimized out
 	volatile unsigned int n;
-	// for loop of 5000 to simulate delay
-	for(n=0;n<5000;n++);
+	// for loop of 10000 to simulate delay
+	for(n=0;n<10000;n++);
 
 }
+/* Transmit data from SPI -> LCD using SPI_SendData8 */
 void LCD_Transmit(uint8_t data){
 	//Force your LCK signal to 0 using bitset/reset register
 	GPIOB->BSRR |= GPIO_BSRR_BR_4;
@@ -225,6 +242,7 @@ void LCD_Transmit(uint8_t data){
 	//Force your LCK signal to 1
 	GPIOB->BSRR |= GPIO_BSRR_BS_4;
 }
+/*send instructions for setting up LCD */
 void send_instr(uint8_t instr){
 	//split 8 bit instructions into two 4bit (high, low)
 	uint8_t H_half = (instr & 0xF0) >> 4;
@@ -243,6 +261,7 @@ void send_instr(uint8_t instr){
 	LCD_Delay();
 
 }
+/* send ASCII characters to LCD */
 void send_var(uint8_t var){
 	//split 8 bit instructions into two 4bit (high, low)
 	uint8_t H_half = (var & 0xF0) >> 4;
@@ -261,6 +280,7 @@ void send_var(uint8_t var){
 	LCD_Delay();
 
 }
+/* Initialize LCD */
 void myLCD_Init(){
 	LCD_Delay();
 	//set function sent 3 times
@@ -293,8 +313,8 @@ void myLCD_Init(){
 }
 //Test function for proper LCD operation
 void testLCD(){
-	char* topline = "123456789";
-	char* botline = "123456789  ";
+	char* topline = "Test";
+	char* botline = "Words";
 
 	send_instr(0x80);
 	for(uint8_t i=0;i<8;i++){
@@ -305,6 +325,7 @@ void testLCD(){
 		send_var(botline[i]);
 	}
 }
+/* GPIOA initialization for ADC/DAC circuitry, including 5k pot, 555 timer and octocoupler */
 void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral (Relevant register: RCC->AHBENR) */
@@ -322,52 +343,57 @@ void myGPIOA_Init()
 	/* Ensure no pull-up/pull-down for PA4 */
 	GPIOA->MODER &= ~(GPIO_PUPDR_PUPDR4);
 }
+/* GPIOB initialization for SPI and LCD operation */
 void myGPIOB_Init(){
 	/* Enable clock for GPIOB peripheral (Relevant register: RCC->AHBENR) */
-		RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+	RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
 	/* Configure PB3 for MOSI via alternative function 0 */
-		GPIOB->MODER = (GPIOB->MODER & (~GPIO_MODER_MODER3)) | GPIO_MODER_MODER3_1;	// clear GPOIB->MODER before setting bits
+	GPIOB->MODER = (GPIOB->MODER & (~GPIO_MODER_MODER3)) | GPIO_MODER_MODER3_1;	// clear GPOIB->MODER before setting bits
 	/* Configure PB5 for SCK via alternative function 0 */
-		GPIOB->MODER = (GPIOB->MODER & (~GPIO_MODER_MODER5)) | GPIO_MODER_MODER5_1;
+	GPIOB->MODER = (GPIOB->MODER & (~GPIO_MODER_MODER5)) | GPIO_MODER_MODER5_1;
 	/* Configure PB4 for 74HC595 output */
-		GPIOB->MODER |= GPIO_MODER_MODER4_0;
+	GPIOB->MODER |= GPIO_MODER_MODER4_0;
 	//set alternative function to 0 for PB3, PB5
-		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR3);
-		GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR5);
+	GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR3);
+	GPIOB->AFR[0] &= ~(GPIO_AFRL_AFR5);
 	//Ensure no pull-up/pull-down for PB3, PB5
-		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
-		GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
+	GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR3);
+	GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR5);
 }
+/* Timer 2 initialization, for use in calculating frequency from the 555 timer */
 void myTIM2_Init()
 {
-	/* Enable clock for TIM2 peripheral (Relevant register: RCC->APB1ENR) */
+	/* Enable clock for TIM2 peripheral */
 	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
-	// Relevant register: TIM2->CR1
 	TIM2->CR1 &= ~(TIM_CR1_DIR);	// clear direction bit
-	TIM2->CR1 |= TIM_CR1_ARPE; 		// buffer auto-reload
-	TIM2->CR1 |= TIM_CR1_URS;		// counter used as up counter
-	TIM2->CR1 |= TIM_CR1_OPM;		// stop on overflow
+	TIM2->CR1 |= TIM_CR1_ARPE; 		// set auto-reload
+	TIM2->CR1 |= TIM_CR1_URS;		// set overflow only events
+	TIM2->CR1 |= TIM_CR1_OPM;		// set stop on overflow event
 	TIM2->CR1 &= ~(TIM_CR1_UDIS);	// clear update event disable (i.e. enable events)
-
-	/* Set clock pre-scaler value */
+	/* Set clock prescaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
 	/* Set auto-reloaded delay */
 	TIM2->ARR = myTIM2_PERIOD;
 
-	/* Update timer registers (Relevant register: TIM2->EGR) */
+	/* Update timer registers */
 	TIM2->EGR = ((uint16_t)0x0001);
 
-	/* Assign TIM2 interrupt priority = 0 in NVIC (Relevant register: NVIC->IP[3], or use NVIC_SetPriority)*/
+	/* Assign TIM2 interrupt priority = 0 in NVIC */
+	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
 	NVIC_SetPriority(TIM2_IRQn, 0);
 
-	/* Enable TIM2 interrupts in NVIC (Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ) */
+	/* Enable TIM2 interrupts in NVIC */
+	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(TIM2_IRQn);
 
-	/* Enable update interrupt generation (Relevant register: TIM2->DIER) */
+	/* Enable update interrupt generation */
 	TIM2->DIER |= TIM_DIER_UIE;
+
 }
+/* initialize external interrupt */
 void myEXTI_Init()
 {
 	/* Map EXTI1 line to PA1 */
@@ -388,7 +414,7 @@ void myEXTI_Init()
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
-	TIM2->CNT = 0x00;
+
 }
 /* This handler is declared in system/src/cmsis/vectors_stm32f0xx.c */
 void TIM2_IRQHandler()
@@ -412,28 +438,31 @@ void TIM2_IRQHandler()
 /* This handler is declared in system/src/cmsis/vectors_stm32f0xx.c */
 void EXTI0_1_IRQHandler()
 {
-	/* Check if EXTI1 interrupt pending flag is indeed set */
-	if ((EXTI->PR & EXTI_PR_PR1) != 0)
-	{
-	/* Check if EXTI1 interrupt pending flag is indeed set */
-		if ((EXTI->PR & EXTI_PR_PR1) != 0)
-		{
-			// toggle timer start/stop
-			TIM2->CR1 ^= TIM_CR1_CEN;
+	// Your local variables...
+		//volatile uint32_t timer_count;
 
-			// if timer is stopped
-			if(!(TIM2->CR1 & TIM_CR1_CEN))
-			{
-				// read timer count
-				timer_count = TIM2->CNT;
-				// clear count
-				TIM2->CNT = 0x00000000;
+		/* Check if EXTI1 interrupt pending flag is indeed set */
+		if ((EXTI->PR & EXTI_PR_PR1) != 0){
+			//
+			// 1. If this is the first edge:
+
+			if(!(TIM2->CR1 & TIM_CR1_CEN)){
+
+				//	- Clear count register (TIM2->CNT).
+				//	- Start timer (TIM2->CR1).
+				TIM2->CNT = 0x00;
+				TIM2->CR1 |= TIM_CR1_CEN;
 			}
-
-			// clear interrupt pending bit
-			EXTI->PR |= EXTI_PR_PR1;
+			//    Else (this is the second edge):
+			else {
+				//	- Stop timer (TIM2->CR1).
+				TIM2->CR1 &= ~TIM_CR1_CEN;
+				//store current timer value into global variable
+				timer_count = TIM2->CNT;
+				}
 		}
-	}
+		// clear interrupt pending bit
+		EXTI->PR |= EXTI_PR_PR1;
 }
 
 
