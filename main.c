@@ -75,7 +75,7 @@ main(int argc, char* argv[])
  * Calculated frequency = 1.443/(R1+2R2)C1 = 960Hz
  * Measured@Rpot = 0 => 702Hz
  * Measured@Rpot = 5000 => 1099Hz
- *
+ * Duty Cycle = 100% * (R1+R2)/(R1+(2*R2)) = 66.7%
  *
  *
  */
@@ -95,7 +95,7 @@ main(int argc, char* argv[])
 	//testADC();
 	//start ADC conversion
 	ADC1->CR |= ADC_CR_ADSTART;
-	//Read ACD data register to integer
+	//Read ADC data register to integer
 	uint32_t adc_val = ADC1->DR;
 	//do math to get resister value of pot
 	uint32_t res = (adc_val*5000)/4095;
@@ -160,8 +160,7 @@ void testADC(){
 }
 /* Write string to top half of LCD display */
 void LCD_WriteStrTop(const char* string){
-	uint8_t instr = 0x80;
-	send_instr(instr);
+	send_instr(0x80);
 	//write string so long as string has values in array
 	unsigned int q;
 	for(q=0;string[q]!=0;q++){
@@ -174,8 +173,7 @@ void LCD_WriteStrTop(const char* string){
 }
 /* Write string to bottom half of LCD display */
 void LCD_WriteStrBot(const char* string){
-	uint8_t instr = 0xC0;
-	send_instr(instr);
+	send_instr(0xC0);
 	//write string so long as string has values in array
 	unsigned int q;
 	for(q=0;string[q]!=0;q++){
