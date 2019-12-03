@@ -68,17 +68,6 @@ void testLCD(void);
 volatile uint32_t timer_count;
 main(int argc, char* argv[])
 
-
-/* R1 = 5.019kOhms
- * R2 = 5.002kOhms
- * C1 = 0.1uF
- * Calculated frequency = 1.443/(R1+2R2)C1 = 960Hz
- * Measured@Rpot = 0 => 702Hz
- * Measured@Rpot = 5000 => 1099Hz
- * Duty Cycle = 100% * (R1+R2)/(R1+(2*R2)) = 66.7%
- *
- *
- */
 {
 	myGPIOA_Init();		/* Initialize I/O port PA */
 	myGPIOB_Init();		/* Initialize I/O port PB */
@@ -104,7 +93,6 @@ main(int argc, char* argv[])
 	//print resistance to LCD
 	snprintf(res_string, sizeof(res_string),"R:%uOh",res);
 	LCD_WriteStrBot(res_string);
-
 
 	//disable timer interrupts to poll timer count on TIM2->CNT register
 	NVIC_DisableIRQ(EXTI0_1_IRQn);
